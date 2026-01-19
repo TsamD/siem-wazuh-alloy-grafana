@@ -1,0 +1,120 @@
+services:
+####### Prometheus #######
+  prometheus:
+    user: root
+    image: prom/prometheus:v2.48.1
+    command:
+      - --web.enable-remote-write-receiver
+      - --config.file=/etc/prometheus/prometheus.yml
+    volumes:
+      - ./data/prometheus:/prometheus
+      - ./config/prometheus/prometheus.yml:/etc/prometheus/prometheus.yml
+    networks:
+      siem:
+    ports:
+      - "9090:9090"
+#    expose:
+#      - 9090
+ ####### Graphana #######
+  grafana:
+    restart: unless-stopped
+    user: "0:0" # you may need to change this by using id -u
+    image: grafana/grafana:10.2.2
+    networks:
+      siem:
+    volumes:
+      - ./data/grafana:/var/lib/grafana
+    environment:
+      GF_SMTP_HOST: maildev:1025
+      GF_METRICS_INTERVAL_SECONDS: 5
+      GF_ALERTING_MIN_INTERVAL_SECONDS: 5
+      GF_ALERTING_MAX_ATTEMPTS: 1
+      GF_SMTP_ENABLED: "true"
+      GF_ADMIN_PASSWORD: "admin"
+    ports:
+      - 3000:3000
+  alloy:
+    image: grafana/alloy:v1.12.0
+    ports:
+      - "12345:12345"
+    networks:
+        siem:
+    volumes:
+      - ./config.alloy:/etc/alloy/config.alloy
+      - ./config/loki:/mnt/config
+      - ./data/zeek/logs:/zeek-logs
+      - ./data/suricata/logs:/suricata-logs
+      - ./data/suricata/logs/eve.json:/var/log/eve.json:ro
+      - ./config/alloy/config.alloy:/etc/alloy/config.alloy
+      - ./data/alloy:/var/lib/alloy
+    command: ["run", "/etc/alloy/config.alloy", "--server.http.listen-addr=0.0.0.0:12345"]
+  loki:
+    image: grafana/loki
+    volumes:
+      - "./config/loki:/mnt/config"
+    networks:
+      siem:
+    command: "-config.file=/mnt/config/loki-config.yml"
+    ports:
+      - 3100:3100
+ ####### Zeek  #######
+  zeek:
+    image: zeek/zeek:lts
+    network_mode: host
+    volumes:
+      - ./data/zeek/logs:/logs
+    command: /bin/bash -c "cd /logs && zeek -C -i br_siem"
+  ####### Suricata #######
+  suricata:
+    build:
+      context: suricata/.
+    network_mode: host
+    cap_add:
+     - NET_ADMIN
+     - NET_RAW
+    volumes:
+      - ./config/suricata/suricata.yaml:/etc/suricata/suricata.yaml
+      - ./data/suricata/rules:/var/lib/suricata/rules
+      - ./data/suricata/logs:/var/log/suricata/
+    command: /bin/bash -c "suricata-update && suricata -c /etc/suricata/suricata.yaml -i br_siem && tail -f /var/log/cron.log"
+ ####### Maildev #######
+  maildev:
+    image: maildev/maildev
+    restart: always
+    networks:
+      siem:
+    environment:
+      - TZ=Europe/Paris
+      - MAILDEV_WEB_PORT=1080
+      - MAILDEV_SMTP_PORT=1025
+    ports:
+      - "1080:1080"
+  ####### Apps #######
+  server-app:
+    build:
+      context: ./server-app/.
+    networks:
+      siem:
+    ports:
+      - "3001:80"
+    environment:
+      RESET_ACESS_METRIC: "900000" # 10 minutes
+  stress:
+    networks:
+      siem:
+    build:
+      context: ./stress/.
+  curl:
+    networks:
+      siem:
+    build:
+      context: ./curl/.
+networks:
+  siem:
+    driver: bridge
+    ipam:
+      driver: default
+      config:
+        - subnet: 172.23.0.0/16
+    driver_opts:
+      com.docker.network.bridge.name: br_siem

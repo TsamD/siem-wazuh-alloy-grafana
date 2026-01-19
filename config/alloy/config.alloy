@@ -1,0 +1,79 @@
+local.file_match "suricata" {
+  path_targets = [{"__path__" = "/var/log/eve.json"}]
+  sync_period = "5s"
+}
+
+loki.source.file "log_scrape" {
+  targets    = local.file_match.suricata.targets
+  forward_to = [loki.process.suricata_filter.receiver]
+  tail_from_end = false
+}
+
+loki.process "suricata_filter" {
+  stage.json {
+    expressions = {
+      "alert" = "alert",
+      "timestamp" ="timestamp",
+      "dns" = "dns",
+      "src_ip" = "src_ip",
+      "src_port" = "src_port",
+      "dest_ip" = "dest_ip",
+      "dest_port" = "dest_port",
+      "event_type" =  "event_type",
+      "in_iface" = "in_iface",
+    }
+  }
+
+
+  forward_to = [loki.write.grafana_loki.receiver]
+}
+
+loki.write "grafana_loki" {
+  endpoint {
+    url = "http://loki:3100/loki/api/v1/push"
+  }
+}
+
+local.file_match "zeek" {
+  path_targets = [{"__path__" = "/zeek-logs/*.log"}]
+   
+  sync_period = "5s"
+}
+
+loki.source.file "zeek_scrape" {
+  targets       = local.file_match.zeek.targets
+  forward_to    = [loki.process.zeek_labels.receiver]
+  tail_from_end = true
+}
+
+loki.process "zeek_labels" {
+  stage.labels {
+    values = {
+      job = "zeek",
+    }
+  }
+  forward_to = [loki.write.grafana_loki.receiver]
+}
+
+
+prometheus.exporter.unix "local_system" { }
+
+prometheus.scrape "scrape_metrics" {
+  targets         = prometheus.exporter.unix.local_system.targets
+  forward_to      = [prometheus.relabel.filter_metrics.receiver]
+  scrape_interval = "10s"
+}
+prometheus.relabel "filter_metrics" {
+  rule {
+    action        = "drop"
+    source_labels = ["env"]
+    regex         = "dev"
+  }
+
+  forward_to = [prometheus.remote_write.metrics_service.receiver]
+}
+prometheus.remote_write "metrics_service" {
+  endpoint {
+    url = "http://prometheus:9090/api/v1/write"
+  }
+}

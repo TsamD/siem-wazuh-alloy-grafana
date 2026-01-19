@@ -1,0 +1,5 @@
+#tls_server_config:
+# cert_file: /etc/alloyr/alloy.crt
+#  key_file: /etc/alloyr/alloy.key
+#basic_auth_users:
+#  siem:$2y$05$FmkwzqbrsE0II1UiNB380.V8Q6FcKZL3AJF0mHAcExmWqFOilZ1/6

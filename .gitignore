@@ -1,0 +1,13 @@
+data/alloy/
+data/grafana/alerting/
+data/grafana/csv/
+data/grafana/plugings/
+data/grafana/png/
+#data/grafana/grafana.db
+data/promotheus/
+data/suricata/
+data/zeek/
+data/suricata/logs/
+data/prometheus/data/
+data/wazuh/wazuh_indexer/data/
+

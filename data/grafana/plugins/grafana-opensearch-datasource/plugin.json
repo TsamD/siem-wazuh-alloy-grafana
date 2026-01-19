@@ -1,0 +1,56 @@
+{
+  "alerting": true,
+  "annotations": true,
+  "backend": true,
+  "category": "logging",
+  "dependencies": {
+    "grafanaDependency": "\u003e=9.0.0",
+    "plugins": []
+  },
+  "executable": "gpx_opensearch-datasource",
+  "id": "grafana-opensearch-datasource",
+  "info": {
+    "author": {
+      "name": "Grafana Labs",
+      "url": "https://grafana.com"
+    },
+    "build": {
+      "time": 1725916124962,
+      "repo": "https://github.com/grafana/opensearch-datasource",
+      "branch": "main",
+      "hash": "65a0852431b692c79623eaa6e83e36fa0b7a01eb",
+      "build": 1003
+    },
+    "description": "Query OpenSearch to visualize logs or metrics.",
+    "keywords": [
+      "elasticsearch",
+      "opensearch",
+      "aws",
+      "cloud provider",
+      "database",
+      "logs",
+      "nosql",
+      "traces"
+    ],
+    "links": [
+      {
+        "name": "Github",
+        "url": "https://github.com/grafana/opensearch-datasource"
+      }
+    ],
+    "logos": {
+      "large": "img/logo.svg",
+      "small": "img/logo.svg"
+    },
+    "screenshots": [],
+    "updated": "2024-09-09",
+    "version": "2.18.0"
+  },
+  "logs": true,
+  "metrics": true,
+  "name": "OpenSearch",
+  "queryOptions": {
+    "minInterval": true
+  },
+  "type": "datasource"
+}

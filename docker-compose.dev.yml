@@ -1,0 +1,80 @@
+services:
+  grafana:
+    ports:
+      - "3000:3000"
+    volumes:
+#      - ./config/grafana/dashboards:/etc/grafana/provisioning/dashboards/json_files:ro
+      - ./data/grafana/dashboards:/var/lib/grafana/dashboards
+    environment:
+      - GF_PATHS_PROVISIONING=/etc/grafana/provisioning
+      - GF_AUTH_ANONYMOUS_ENABLED=true
+      - GF_AUTH_ANONYMOUS_ORG_ROLE=Admin
+      - GF_INSTALL_PLUGINS=grafana-opensearch-datasource 2.18.0
+    entrypoint:
+      - sh
+      - -euc
+      - |
+        mkdir -p /etc/grafana/provisioning/dashboards
+        mkdir -p /var/lib/grafana/dashboards
+        mkdir -p /etc/grafana/provisioning/datasources
+        cat <<EOF > /etc/grafana/provisioning/datasources/ds.yaml
+        apiVersion: 1
+        datasources:
+        - name: Loki
+          type: loki
+          access: proxy
+          orgId: 1
+          url: http://loki:3100
+          basicAuth: false
+          isDefault: false
+          version: 1
+          editable: false
+        - name: Prometheus
+          type: prometheus
+          orgId: 1
+          url: http://prometheus:9090
+          basicAuth: false
+          isDefault: true
+          version: 1
+          editable: false
+        - name: OpenSearch
+          type: openSearch
+          access: proxy
+          orgId: 1
+          url: https://wazuh.indexer:9200
+          basicAuth: true
+          isDefault: false
+          version: 1
+          editable: false
+          withCredentials: true
+          skipTlsVerify: true
+          user: admin
+          password: SecretPassword
+        EOF
+        # Provisioning dashboards
+        cat <<EOF > /etc/grafana/provisioning/dashboards/dashboards.yaml
+        apiVersion: 1
+        providers:
+        - name: 'default'
+          orgId: 1
+          folder: 'Security'
+          type: file
+          disableDeletion: false
+          editable: true
+          options:
+            path: /var/lib/grafana/dashboards
+        EOF
+        /run.sh
+  loki:
+    ports:
+      - "3100:3100"
+  alloy:
+   volumes:
+      - ./config/alloy/:/etc/alloy/
+   ports:
+      - "12345:12345"
+  prometheus:
+    volumes:
+#      - ./config/alloy/alloy.crt:/alloy.crt #next step is to make it tls
+    ports:
+      - "9090:9090"
