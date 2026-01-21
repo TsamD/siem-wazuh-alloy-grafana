@@ -1,5 +1,5 @@
-- execute  `sudo rmdir config/suricata/logs/eve.json` 
-- execute  `sudo touch config/suricata/logs/eve.json`
+- execute  `sudo rmdir data/suricata/logs/eve.json` 
+- execute  `sudo touch data/suricata/logs/eve.json`
 
 - execute `docker compose up -d`
 
