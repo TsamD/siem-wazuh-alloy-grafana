@@ -74,7 +74,7 @@ services:
    ports:
       - "12345:12345"
   prometheus:
-    volumes:
+#    volumes:
 #      - ./config/alloy/alloy.crt:/alloy.crt #next step is to make it tls
     ports:
       - "9090:9090"
